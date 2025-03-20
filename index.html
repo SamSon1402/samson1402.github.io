@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ankorstore Order Flow Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #87CEEB;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+        }
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        #textBox {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 80%;
+            display: none;
+            font-size: 18px;
+            text-align: center;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+            border: 2px solid #FF69B4;
+        }
+        #instructions {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 10;
+        }
+        #progressBar {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            z-index: 10;
+        }
+        .progress-item {
+            margin: 5px 0;
+            display: flex;
+            align-items: center;
+        }
+        .progress-dot {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-right: 10px;
+            background-color: #444;
+        }
+        .progress-dot.visited {
+            background-color: #4CAF50;
+        }
+        .button {
+            background-color: #FF69B4;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            margin-top: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            transition: background-color 0.3s;
+        }
+        .button:hover {
+            background-color: #FF1493;
+        }
+        #quizBox {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 80%;
+            display: none;
+            font-size: 18px;
+            text-align: center;
+            z-index: 100;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            border: 3px solid #4CAF50;
+        }
+        #notepad {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background-color: rgba(255, 255, 200, 0.9);
+            color: #333;
+            padding: 15px;
+            border-radius: 5px;
+            max-width: 300px;
+            font-size: 14px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+            display: none;
+            z-index: 20;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="textBox"></div>
+        <div id="quizBox"></div>
+        <div id="instructions">
+            <strong>🎮 CONTROLS:</strong><br>
+            ← → arrow keys to move<br>
+            Press E when near a tree to interact<br>
+            Press N to toggle notepad<br>
+            Press SPACE to jump
+        </div>
+        <div id="progressBar">
+            <strong>📊 ORDER FLOW PROGRESS:</strong>
+            <div id="progressTracker"></div>
+        </div>
+        <div id="notepad">
+            <strong>📝 LOGISTICS NOTES:</strong><br><br>
+            <div id="noteContent">
+                <p>- Ankorstore connects 32k brands with 200k retailers</p>
+                <p>- Minimum order: €100 per brand</p>
+                <p>- Free shipping for retailers on orders above €300</p>
+                <p>- Order flow includes validation, fulfillment, and delivery stages</p>
+                <p>- Brands can use Ankorstore fulfillment or self-fulfill</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Game setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const textBox = document.getElementById('textBox');
+        const quizBox = document.getElementById('quizBox');
+        const notepad = document.getElementById('notepad');
+        const progressTracker = document.getElementById('progressTracker');
+        
+        // Set canvas size
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        // Game variables
+        const player = {
+            x: 100,
+            y: canvas.height - 100,
+            width: 40,
+            height: 60,
+            speed: 7,
+            isMovingLeft: false,
+            isMovingRight: false,
+            facingRight: true,
+            jumping: false,
+            jumpPower: 15,
+            jumpVelocity: 0,
+            gravity: 0.8,
+            onGround: true,
+            frame: 0,
+            frameCount: 5,
+            frameDelay: 5,
+            frameTimer: 0
+        };
+        
+        // Ground level
+        const groundY = canvas.height - 50;
+        
+        // Cloud objects
+        const clouds = [];
+        for(let i = 0; i < 10; i++) {
+            clouds.push({
+                x: Math.random() * canvas.width * 2,
+                y: Math.random() * (groundY / 2),
+                width: 60 + Math.random() * 60,
+                height: 30 + Math.random() * 20,
+                speed: 0.2 + Math.random() * 0.3
+            });
+        }
+        
+        // Coins for additional engagement
+        const coins = [];
+        for(let i = 0; i < 15; i++) {
+            const treeIndex = Math.floor(Math.random() * 6);
+            coins.push({
+                x: 200 + treeIndex * 200 + Math.random() * 100 - 50,
+                y: groundY - 50 - Math.random() * 60,
+                width: 20,
+                height: 20,
+                collected: false,
+                floating: true,
+                floatOffset: Math.random() * Math.PI * 2
+            });
+        }
+        
+        // Decision trees with more detailed information
+        const trees = [
+            {
+                x: 200,
+                y: groundY - 100,
+                width: 80,
+                height: 100,
+                title: "Retailer Places Order",
+                text: "This is the start of the order journey. 100% of orders begin here.\n\nRetailers browse products from independent brands across categories like kids, home, groceries, fashion, and beauty.",
+                visited: false,
+                additionalNotes: "- Retailers use ankorstore.com to place orders\n- The platform connects 32k brands with 200k retailers\n- Minimum order: €100 per brand\n- Free shipping for retailers on orders above €300",
+                quiz: {
+                    question: "What's the minimum order value that a retailer must place with each brand?",
+                    options: ["€50", "€100", "€200", "€300"],
+                    answer: 1
+                }
+            },
+            {
+                x: 400,
+                y: groundY - 100,
+                width: 80,
+                height: 100,
+                title: "Ankorstore Validation",
+                text: "Ankorstore checks if the retailer is legitimate (especially regarding payment terms).\n\n• 96% of orders PASS this step\n• 4% of orders FAIL and are rejected\n\nThis verification ensures financial security for brands.",
+                visited: false,
+                additionalNotes: "- Ankorstore offers net 30/60 payment terms to retailers\n- This validation step protects brands from non-payment\n- Rejected orders may be due to payment issues or incomplete retailer information",
+                quiz: {
+                    question: "What percentage of orders are rejected by Ankorstore during validation?",
+                    options: ["2%", "4%", "6%", "8%"],
+                    answer: 1
+                }
+            },
+            {
+                x: 600,
+                y: groundY - 100,
+                width: 80,
+                height: 100,
+                title: "Brand Review",
+                text: "Brand checks the order in their Ankorstore space.\n\n• 97% of orders are ACCEPTED\n• 3% of orders are REJECTED by the brand\n\nBrands might reject orders due to stock availability, shipping limitations, or retailer requirements.",
+                visited: false,
+                additionalNotes: "- Brands can manage their catalog and inventory in their Ankorstore space\n- Common reasons for rejection: out-of-stock items, inability to ship to certain regions\n- This step provides brands with final approval before commitment",
+                quiz: {
+                    question: "What percentage of orders received by brands are accepted?",
+                    options: ["90%", "93%", "97%", "99%"],
+                    answer: 2
+                }
+            },
+            {
+                x: 800,
+                y: groundY - 100,
+                width: 80,
+                height: 100,
+                title: "Fulfillment Decision",
+                text: "Brand decides how to fulfill the order.\n\n• 20% go to Ankorstore Fulfillment Center\n• 80% are handled by the brand themselves\n\nAnkorstore Fulfillment requires brands to replenish stock in Ankorstore's warehouse.",
+                visited: false,
+                additionalNotes: "- Ankorstore Fulfillment offers faster shipping and professional handling\n- Brands must pre-stock inventory at Ankorstore's Fulfillment Center\n- Self-fulfillment gives brands more control but requires their own logistics",
+                quiz: {
+                    question: "What percentage of validated orders go to Ankorstore's Fulfillment Center?",
+                    options: ["10%", "20%", "30%", "40%"],
+                    answer: 1
+                }
+            },
+            {
+                x: 1000,
+                y: groundY - 100,
+                width: 80,
+                height: 100,
+                title: "Carrier Choice",
+                text: "For brand-handled orders, they choose the carrier.\n\n• 40% use brand's own carrier ('brand label')\n• 60% use Ankorstore partners ('Ankorstore label')\n\nThis choice affects shipping costs, tracking capabilities, and delivery speed.",
+                visited: false,
+                additionalNotes: "- Ankorstore's carrier partners may offer preferential rates\n- Brand label gives brands more control over shipping experience\n- Ankorstore label provides standardized tracking and customer experience",
+                quiz: {
+                    question: "What percentage of brand-handled orders use Ankorstore's carrier partners?",
+                    options: ["30%", "40%", "50%", "60%"],
+                    answer: 3
+                }
+            },
+            {
+                x: 1200,
+                y: groundY - 100,
+                width: 80,
+                height: 100,
+                title: "Final Statistics",
+                text: "Complete order journey statistics:\n\n• 4.00% - Rejected by Ankorstore\n• 2.88% - Rejected by Brand (3% of 96%)\n• 93.12% - Accepted & Fulfilled:\n  - 18.62% via Ankorstore Fulfillment (20% of 93.12%)\n  - 29.80% via Brand's carrier (40% of 74.50%)\n  - 44.70% via Ankorstore's carrier (60% of 74.50%)",
+                visited: false,
+                additionalNotes: "- The entire flow shows how orders are distributed through the system\n- Note how the percentages multiply at each step\n- Most orders (93.12%) successfully reach retailers\n- Understanding this flow helps identify bottlenecks and optimization opportunities",
+                quiz: {
+                    question: "What's the overall percentage of orders that are successfully fulfilled?",
+                    options: ["86.4%", "90.0%", "93.12%", "97.0%"],
+                    answer: 2
+                }
+            }
+        ];
+        
+        // Game state
+        let score = 0;
+        let coinsCollected = 0;
+        let showingQuiz = false;
+        let currentQuiz = null;
+        let cameraOffset = 0;
+        let notepadVisible = false;
+        
+        // Initialize progress tracker
+        function initProgressTracker() {
+            progressTracker.innerHTML = '';
+            trees.forEach((tree, index) => {
+                const item = document.createElement('div');
+                item.className = 'progress-item';
+                
+                const dot = document.createElement('div');
+                dot.className = 'progress-dot';
+                dot.id = `progress-${index}`;
+                
+                const label = document.createElement('span');
+                label.textContent = tree.title;
+                
+                item.appendChild(dot);
+                item.appendChild(label);
+                progressTracker.appendChild(item);
+            });
+        }
+        
+        // Update progress tracker
+        function updateProgressTracker() {
+            trees.forEach((tree, index) => {
+                const dot = document.getElementById(`progress-${index}`);
+                if (tree.visited) {
+                    dot.classList.add('visited');
+                } else {
+                    dot.classList.remove('visited');
+                }
+            });
+        }
+        
+        // Keyboard control
+        const keys = {};
+        
+        window.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+            
+            // Check for 'E' key press near trees
+            if (e.key === 'e' || e.key === 'E') {
+                if (!showingQuiz) {
+                    checkTreeInteraction();
+                }
+            }
+            
+            // Space for jumping
+            if (e.key === ' ' && player.onGround && !player.jumping) {
+                player.jumping = true;
+                player.onGround = false;
+                player.jumpVelocity = -player.jumpPower;
+            }
+            
+            // N for notepad
+            if (e.key === 'n' || e.key === 'N') {
+                toggleNotepad();
+            }
+        });
+        
+        window.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+        
+        // Toggle notepad visibility
+        function toggleNotepad() {
+            notepadVisible = !notepadVisible;
+            notepad.style.display = notepadVisible ? 'block' : 'none';
+        }
+        
+        // Show quiz for a tree
+        function showQuiz(quiz) {
+            if (!quiz) return;
+            
+            showingQuiz = true;
+            currentQuiz = quiz;
+            
+            let html = `<h2>🧠 QUICK QUIZ!</h2>`;
+            html += `<p>${quiz.question}</p>`;
+            
+            html += `<div style="text-align: left; display: inline-block;">`;
+            quiz.options.forEach((option, index) => {
+                html += `<p><label>
+                    <input type="radio" name="quiz" value="${index}"> ${option}
+                </label></p>`;
+            });
+            html += `</div>`;
+            
+            html += `<button class="button" onclick="checkQuizAnswer()">Submit Answer</button>`;
+            
+            quizBox.innerHTML = html;
+            quizBox.style.display = 'block';
+        }
+        
+        // Check quiz answer
+        window.checkQuizAnswer = function() {
+            const selected = document.querySelector('input[name="quiz"]:checked');
+            if (!selected) return;
+            
+            const selectedValue = parseInt(selected.value);
+            
+            if (selectedValue === currentQuiz.answer) {
+                quizBox.innerHTML = `
+                    <h2>🎉 Correct!</h2>
+                    <p>Great job! You understand this part of the order flow.</p>
+                    <p>+50 points!</p>
+                    <button class="button" onclick="closeQuiz()">Continue</button>
+                `;
+                score += 50;
+            } else {
+                quizBox.innerHTML = `
+                    <h2>❌ Not quite right</h2>
+                    <p>The correct answer is: ${currentQuiz.options[currentQuiz.answer]}</p>
+                    <p>Keep learning about the order flow!</p>
+                    <button class="button" onclick="closeQuiz()">Continue</button>
+                `;
+            }
+        };
+        
+        // Close quiz
+        window.closeQuiz = function() {
+            quizBox.style.display = 'none';
+            showingQuiz = false;
+            currentQuiz = null;
+        };
+        
+        // Collect coins
+        function collectCoins() {
+            coins.forEach(coin => {
+                if (!coin.collected) {
+                    const playerCenter = player.x + player.width / 2;
+                    const playerBottom = player.y;
+                    
+                    const coinCenter = coin.x + coin.width / 2;
+                    const coinBottom = coin.y + coin.height;
+                    
+                    const xDistance = Math.abs(playerCenter - coinCenter);
+                    const yDistance = Math.abs(playerBottom - player.height / 2 - (coinBottom - coin.height / 2));
+                    
+                    if (xDistance < (player.width + coin.width) / 2 && 
+                        yDistance < (player.height + coin.height) / 2) {
+                        coin.collected = true;
+                        coinsCollected++;
+                        score += 10;
+                        
+                        // Create floating text effect
+                        createFloatingText(coin.x, coin.y, "+10");
+                    }
+                }
+            });
+        }
+        
+        // Floating texts for visual feedback
+        const floatingTexts = [];
+        
+        function createFloatingText(x, y, text) {
+            floatingTexts.push({
+                x: x,
+                y: y,
+                text: text,
+                opacity: 1,
+                life: 30
+            });
+        }
+        
+        function updateFloatingTexts() {
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                const text = floatingTexts[i];
+                text.y -= 2;
+                text.life--;
+                text.opacity = text.life / 30;
+                
+                if (text.life <= 0) {
+                    floatingTexts.splice(i, 1);
+                }
+            }
+        }
+        
+        function drawFloatingTexts() {
+            floatingTexts.forEach(text => {
+                ctx.fillStyle = `rgba(255, 255, 0, ${text.opacity})`;
+                ctx.font = 'bold 20px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(text.text, text.x - cameraOffset, text.y);
+            });
+        }
+        
+        // Game loop with optimization
+        let lastTime = 0;
+        const fps = 60;
+        const frameTime = 1000 / fps;
+        
+        function gameLoop(timestamp) {
+            // Calculate delta time for smooth animation
+            const deltaTime = timestamp - lastTime;
+            
+            if (deltaTime >= frameTime) {
+                lastTime = timestamp;
+                update(deltaTime);
+                draw();
+            }
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Update game state
+        function update(deltaTime) {
+            // Skip updates if quiz is showing
+            if (showingQuiz) return;
+            
+            // Update player
+            updatePlayer(deltaTime);
+            
+            // Update clouds
+            updateClouds();
+            
+            // Update coins animation
+            updateCoins();
+            
+            // Check for coin collection
+            collectCoins();
+            
+            // Update floating texts
+            updateFloatingTexts();
+            
+            // Camera following player
+            updateCamera();
+        }
+        
+        // Update player position and animation
+        function updatePlayer(deltaTime) {
+            // Left/right movement
+            if (keys['ArrowLeft']) {
+                player.x -= player.speed;
+                player.facingRight = false;
+                // Animate player
+                player.frameTimer++;
+                if (player.frameTimer >= player.frameDelay) {
+                    player.frame = (player.frame + 1) % player.frameCount;
+                    player.frameTimer = 0;
+                }
+            } else if (keys['ArrowRight']) {
+                player.x += player.speed;
+                player.facingRight = true;
+                // Animate player
+                player.frameTimer++;
+                if (player.frameTimer >= player.frameDelay) {
+                    player.frame = (player.frame + 1) % player.frameCount;
+                    player.frameTimer = 0;
+                }
+            } else {
+                // Reset to standing frame when not moving
+                player.frame = 0;
+                player.frameTimer = 0;
+            }
+            
+            // Handle jumping physics
+            if (player.jumping) {
+                player.y += player.jumpVelocity;
+                player.jumpVelocity += player.gravity;
+                
+                // Check if landed
+                if (player.y >= groundY) {
+                    player.y = groundY;
+                    player.jumping = false;
+                    player.onGround = true;
+                    player.jumpVelocity = 0;
+                }
+            }
+            
+            // Bounds checking to keep player on screen
+            if (player.x < 0) player.x = 0;
+            if (player.x > 5000) player.x = 5000; // Extended world bounds
+        }
+        
+        // Update cloud positions
+        function updateClouds() {
+            clouds.forEach(cloud => {
+                cloud.x -= cloud.speed;
+                if (cloud.x + cloud.width < -100) {
+                    cloud.x = canvas.width + 100;
+                    cloud.y = Math.random() * (groundY / 2);
+                }
+            });
+        }
+        
+        // Update coin animations
+        function updateCoins() {
+            coins.forEach(coin => {
+                if (coin.floating) {
+                    coin.floatOffset += 0.05;
+                    coin.y = groundY - 50 - Math.sin(coin.floatOffset) * 5;
+                }
+            });
+        }
+        
+        // Update camera position to follow player
+        function updateCamera() {
+            const target = player.x - canvas.width / 3;
+            cameraOffset = Math.max(0, Math.min(4000, target));
+        }
+        
+        // Draw game
+        function draw() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw sky gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, groundY);
+            gradient.addColorStop(0, "#87CEEB");
+            gradient.addColorStop(1, "#E0F7FF");
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw clouds
+            drawClouds();
+            
+            // Draw trees and decorations
+            drawTrees();
+            
+            // Draw coins
+            drawCoins();
+            
+            // Draw ground
+            drawGround();
+            
+            // Draw player
+            drawPlayer();
+            
+            // Draw floating texts
+            drawFloatingTexts();
+            
+            // Draw HUD (Heads-Up Display)
+            drawHUD();
+        }
+        
+        // Draw clouds
+        function drawClouds() {
+            ctx.fillStyle = '#FFFFFF';
+            clouds.forEach(cloud => {
+                ctx.beginPath();
+                ctx.arc(cloud.x - cameraOffset, cloud.y, cloud.width / 3, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.width / 3 - cameraOffset, cloud.y - cloud.height / 4, cloud.width / 4, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.width / 1.5 - cameraOffset, cloud.y, cloud.width / 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+        
+        // Draw trees and interactive elements
+        function drawTrees() {
+            trees.forEach((tree, index) => {
+                // Draw tree trunk with shadow
+                ctx.fillStyle = '#654321';
+                ctx.fillRect(tree.x + tree.width/2 - 10 - cameraOffset, tree.y, 20, tree.height);
+                
+                // Draw tree leaves with different shades
+                const leafColors = tree.visited ? ['#4CAF50', '#388E3C', '#2E7D32'] : ['#228B22', '#1B5E20', '#154715'];
+                
+                ctx.fillStyle = leafColors[0];
+                ctx.beginPath();
+                ctx.moveTo(tree.x - cameraOffset, tree.y);
+                ctx.lineTo(tree.x + tree.width/2 - cameraOffset, tree.y - 60);
+                ctx.lineTo(tree.x + tree.width - cameraOffset, tree.y);
+                ctx.fill();
+                
+                ctx.fillStyle = leafColors[1];
+                ctx.beginPath();
+                ctx.moveTo(tree.x + 10 - cameraOffset, tree.y - 30);
+                ctx.lineTo(tree.x + tree.width/2 - cameraOffset, tree.y - 90);
+                ctx.lineTo(tree.x + tree.width - 10 - cameraOffset, tree.y - 30);
+                ctx.fill();
+                
+                ctx.fillStyle = leafColors[2];
+                ctx.beginPath();
+                ctx.moveTo(tree.x + 20 - cameraOffset, tree.y - 60);
+                ctx.lineTo(tree.x + tree.width/2 - cameraOffset, tree.y - 120);
+                ctx.lineTo(tree.x + tree.width - 20 - cameraOffset, tree.y - 60);
+                ctx.fill();
+                
+                // Check if player is near this tree
+                const distance = Math.abs((player.x + player.width/2) - (tree.x + tree.width/2));
+                if (distance < 70) {
+                    // Draw interaction prompt
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Press E to interact', tree.x + tree.width/2 - cameraOffset, tree.y - 140);
+                    
+                    // Add glowing effect for nearby trees
+                    ctx.strokeStyle = 'yellow';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(tree.x - 5 - cameraOffset, tree.y - 125, tree.width + 10, tree.height + 130);
+                }
+                
+                // Always draw tree title and number
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 18px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText((index + 1).toString(), tree.x + tree.width/2 - cameraOffset, tree.y - 100);
+                
+                // Draw tree title with shadow for better visibility
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                ctx.shadowBlur = 4;
+                ctx.shadowOffsetX = 2;
+                ctx.shadowOffsetY = 2;
+                ctx.fillStyle = tree.visited ? '#4CAF50' : '#FFFFFF';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(tree.title, tree.x + tree.width/2 - cameraOffset, tree.y + tree.height + 25);
+                ctx.shadowColor = 'transparent';
+                
+                // Draw check mark if visited
+                if (tree.visited) {
+                    ctx.fillStyle = '#4CAF50';
+                    ctx.font = 'bold 24px Arial';
+                    ctx.fillText('✓', tree.x + tree.width/2 - cameraOffset, tree.y - 150);
+                }
+            });
+        }
+        
+        // Draw coins
+        function drawCoins() {
+            coins.forEach(coin => {
+                if (!coin.collected) {
+                    // Draw coin with glowing effect
+                    ctx.fillStyle = '#FFD700';
+                    ctx.beginPath();
+                    ctx.arc(coin.x + coin.width/2 - cameraOffset, coin.y + coin.height/2, coin.width/2, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Inner details
+                    ctx.fillStyle = '#FFC107';
+                    ctx.beginPath();
+                    ctx.arc(coin.x + coin.width/2 - cameraOffset, coin.y + coin.height/2, coin.width/3, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Text "$"
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('$', coin.x + coin.width/2 - cameraOffset, coin.y + coin.height/2 + 4);
+                }
+            });
+        }
+        
+        // Draw ground
+        function drawGround() {
+            // Draw main ground
+            const groundGradient = ctx.createLinearGradient(0, groundY, 0, canvas.height);
+            groundGradient.addColorStop(0, '#8B4513');
+            groundGradient.addColorStop(1, '#654321');
+            ctx.fillStyle = groundGradient;
+            ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+            
+            // Draw grass
+            ctx.fillStyle = '#7CFC00';
+            for (let x = 0; x < canvas.width; x += 5) {
+                const grassHeight = 5 + Math.random() * 5;
+                ctx.fillRect(x, groundY, 2, -grassHeight);
+            }
+        }
+        
+        // Draw player with animation
+        function drawPlayer() {
+            ctx.fillStyle = '#FF6347';
+            
+            // Draw body
+            ctx.fillRect(player.x - cameraOffset, player.y - player.height, player.width, player.height);
+            
+            // Draw face based on direction
+            ctx.fillStyle = '#000000';
+            if (player.facingRight) {
+                // Right eye
+                ctx.fillRect(player.x + player.width - 15 - cameraOffset, player.y - player.height + 10, 5, 5);
+                // Mouth - animated based on movement
+                if (keys['ArrowRight'] || keys['ArrowLeft']) {
+                    // Animated mouth when moving
+                    const mouthY = player.y - player.height + 30 + Math.sin(player.frame) * 2;
+                    ctx.fillRect(player.x + player.width - 20 - cameraOffset, mouthY, 15, 5);
+                } else {
+                    // Regular mouth when standing
+                    ctx.fillRect(player.x + player.width - 20 - cameraOffset, player.y - player.height + 30, 15, 5);
+                }
+            } else {
+                // Left eye
+                ctx.fillRect(player.x + 10 - cameraOffset, player.y - player.height + 10, 5, 5);
+                // Mouth - animated based on movement
+                if (keys['ArrowRight'] || keys['ArrowLeft']) {
+                    // Animated mouth when moving
+                    const mouthY = player.y - player.height + 30 + Math.sin(player.frame) * 2;
+                    ctx.fillRect(player.x + 5 - cameraOffset, mouthY, 15, 5);
+                } else {
+                    // Regular mouth when standing
+                    ctx.fillRect(player.x + 5 - cameraOffset, player.y - player.height + 30, 15, 5);
+                }
+            }
+            
+            // Draw arms with animation
+            ctx.fillStyle = '#FF6347';
+            if (keys['ArrowRight'] || keys['ArrowLeft']) {
+                // Animated arms when moving
+                const armOffset = Math.sin(player.frame * Math.PI / 2) * 5;
+                ctx.fillRect(player.x - 5 - cameraOffset, player.y - player.height + 15 + armOffset, 5, 20);
+                ctx.fillRect(player.x + player.width - cameraOffset, player.y - player.height + 15 - armOffset, 5, 20);
+            } else {
+                // Regular arms when standing
+                ctx.fillRect(player.x - 5 - cameraOffset, player.y - player.height + 15, 5, 20);
+                ctx.fillRect(player.x + player.width - cameraOffset, player.y - player.height + 15, 5, 20);
+            }
+            
+            // Draw legs with animation
+            if (keys['ArrowRight'] || keys['ArrowLeft']) {
+                // Animated legs when moving
+                const legOffset = Math.sin(player.frame * Math.PI / 2) * 5;
+                ctx.fillRect(player.x + 5 - cameraOffset, player.y - 20 + legOffset, 10, 20);
+                ctx.fillRect(player.x + player.width - 15 - cameraOffset, player.y - 20 - legOffset, 10, 20);
+            } else {
+                // Regular legs when standing
+                ctx.fillRect(player.x + 5 - cameraOffset, player.y - 20, 10, 20);
+                ctx.fillRect(player.x + player.width - 15 - cameraOffset, player.y - 20, 10, 20);
+            }
+            
+            // Draw player shadow
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.beginPath();
+            ctx.ellipse(player.x + player.width/2 - cameraOffset, groundY, player.width/2, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Draw HUD (Heads-Up Display)
+        function drawHUD() {
+            // Draw score and coins collected
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(canvas.width - 200, 70, 180, 50);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(`Score: ${score}`, canvas.width - 190, 90);
+            ctx.fillText(`Coins: ${coinsCollected}/${coins.length}`, canvas.width - 190, 110);
+            
+            // Draw visit progress
+            const visitedCount = trees.filter(tree => tree.visited).length;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(canvas.width - 200, 130, 180, 30);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillText(`Progress: ${visitedCount}/${trees.length} trees`, canvas.width - 190, 150);
+        }
+        
+        // Check if player is near a tree to interact
+        function checkTreeInteraction() {
+            for (const tree of trees) {
+                const distance = Math.abs((player.x + player.width/2) - (tree.x + tree.width/2));
+                if (distance < 70) {
+                    tree.visited = true;
+                    showTextBox(tree.title, tree.text, tree.additionalNotes, tree.quiz);
+                    updateProgressTracker();
+                    if (!tree.quizCompleted) {
+                        tree.quizCompleted = true;
+                        setTimeout(() => {
+                            if (!showingQuiz) {
+                                showQuiz(tree.quiz);
+                            }
+                        }, 5000); // Show quiz after 5 seconds of reading
+                    }
+                    return;
+                }
+            }
+            
+            // Hide text box if not near any tree
+            hideTextBox();
+        }
+        
+        // Show text box with message
+        function showTextBox(title, message, notes, quiz) {
+            let html = `<h2>${title}</h2>`;
+            html += `<p>${message.replace(/\n/g, '<br>')}</p>`;
+            
+            if (notes) {
+                html += `<hr style="border-color: #FF69B4; margin: 15px 0;">`;
+                html += `<h3>📝 Additional Notes:</h3>`;
+                html += `<p>${notes.replace(/\n/g, '<br>')}</p>`;
+            }
+            
+            html += `<button class="button" onclick="hideTextBox()">Close (E)</button>`;
+            
+            textBox.innerHTML = html;
+            textBox.style.display = 'block';
+        }
+        
+        // Hide text box
+        window.hideTextBox = function() {
+            textBox.style.display = 'none';
+        };
+        
+        // Initialize the game
+        function init() {
+            initProgressTracker();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Start the game
+        init();
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            groundY = canvas.height - 50;
+            player.y = groundY;
+        });
+    </script>
+</body>
+</html>
